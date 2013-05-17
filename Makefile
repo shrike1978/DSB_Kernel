@@ -2,7 +2,7 @@ VERSION = 3
 PATCHLEVEL = 0
 SUBLEVEL = 45
 EXTRAVERSION =
-NAME = dsb9938_vf89.Rez.ICS.2.3.9
+NAME =
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
