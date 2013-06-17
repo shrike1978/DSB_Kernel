@@ -110,6 +110,7 @@
 #include <mach/restart.h>
 #include <mach/cable_detect.h>
 #include <mach/panel_id.h>
+#include <linux/msm_tsens.h>
 
 #include "board-vigor.h"
 #include "devices.h"
@@ -343,6 +344,9 @@ int __init vigor_init_panel(struct resource *res, size_t size);
 
 #ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
 int set_two_phase_freq(int cpufreq);
+#ifdef CONFIG_CPU_FREQ_GOV_INTELLIDEMAND
+int id_set_two_phase_freq(int cpufreq);
+#endif
 #endif
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
@@ -503,8 +507,8 @@ static struct regulator_init_data saw_s0_init_data = {
 		.constraints = {
 			.name = "8901_s0",
 			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE,
-			.min_uV = 840000,
-			.max_uV = 1250000,
+			.min_uV = CONFIG_CPU_FREQ_MIN_VDD,
+			.max_uV = CONFIG_CPU_FREQ_MAX_VDD,
 		},
 		.consumer_supplies = vreg_consumers_8901_S0,
 		.num_consumer_supplies = ARRAY_SIZE(vreg_consumers_8901_S0),
@@ -514,8 +518,8 @@ static struct regulator_init_data saw_s1_init_data = {
 		.constraints = {
 			.name = "8901_s1",
 			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE,
-			.min_uV = 840000,
-			.max_uV = 1250000,
+			.min_uV = CONFIG_CPU_FREQ_MIN_VDD,
+			.max_uV = CONFIG_CPU_FREQ_MAX_VDD,
 		},
 		.consumer_supplies = vreg_consumers_8901_S1,
 		.num_consumer_supplies = ARRAY_SIZE(vreg_consumers_8901_S1),
@@ -1414,6 +1418,7 @@ static int vigor_phy_init_seq[] = { 0x06, 0x36, 0x0C, 0x31, 0x31, 0x32, 0x1, 0x0
 static struct msm_otg_platform_data msm_otg_pdata = {
 	.phy_init_seq		= vigor_phy_init_seq,
 	.mode			= USB_PERIPHERAL,
+	.mode      		= USB_OTG,
 	.otg_control		= OTG_PMIC_CONTROL,
 	.phy_type		= CI_45NM_INTEGRATED_PHY,
 	.vbus_power		= msm_hsusb_vbus_power,
@@ -3087,7 +3092,7 @@ static void __init msm8x60_init_dsps(void)
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE + 0x313800 + MSM_FB_DSUB_PMEM_ADDER, 4096)
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
 
-#define MSM_PMEM_SF_SIZE         0x1000000 /* 16 Mbytes */
+#define MSM_PMEM_SF_SIZE         0x4000000 /* 64 Mbytes */
 
 #define MSM_PMEM_ADSP2_SIZE      0x800000
 #define MSM_PMEM_ADSP_SIZE       0x2C00000
@@ -3100,8 +3105,9 @@ static void __init msm8x60_init_dsps(void)
 
 #define MSM_PMEM_ADSP2_BASE      (0x80000000 - MSM_PMEM_ADSP2_SIZE)
 #define MSM_PMEM_ADSP_BASE       (MSM_PMEM_ADSP2_BASE - MSM_PMEM_ADSP_SIZE)
-#define MSM_PMEM_SF_BASE         (0x40400000)
-#define MSM_PMEM_TZCOM_BASE      (MSM_PMEM_SF_BASE + MSM_PMEM_SF_SIZE)
+#define MSM_PMEM_SF_BASE	 (MSM_PMEM_ADSP_BASE - MSM_PMEM_SF_SIZE)
+
+#define MSM_PMEM_TZCOM_BASE         (0x40400000)
 #define MSM_PMEM_AUDIO_BASE      (MSM_PMEM_TZCOM_BASE + MSM_PMEM_TZCOM_SIZE)
 #define MSM_FB_BASE              (MSM_PMEM_AUDIO_BASE + MSM_PMEM_AUDIO_SIZE)
 
@@ -3320,14 +3326,16 @@ static struct platform_device hdmi_msm_device = {
 
 static void __init msm8x60_allocate_memory_regions(void)
 {
+	void *addr;
 	unsigned long size;
 
 	size = MSM_FB_SIZE;
-	msm_fb_resources[0].start = MSM_FB_BASE;
+	
+	addr = alloc_bootmem_align(size, 0x1000);
+	msm_fb_resources[0].start = __pa(addr);
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
 	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
-		size, __va(msm_fb_resources[0].start),
-		(unsigned long)msm_fb_resources[0].start);
+		size, addr, __pa(addr));
 }
 
 
@@ -3802,8 +3810,8 @@ static struct regulator_consumer_supply vreg_consumers_PM8901_S4_PC[] = {
 /* RPM early regulator constraints */
 static struct rpm_regulator_init_data rpm_regulator_early_init_data[] = {
 	/*	 ID	   a_on pd ss min_uV   max_uV   init_ip	freq */
-	RPM_SMPS(PM8058_S0, 0, 1, 1,  500000, 1250000, SMPS_HMIN, 1p92),
-	RPM_SMPS(PM8058_S1, 0, 1, 1,  500000, 1250000, SMPS_HMIN, 1p92),
+	RPM_SMPS(PM8058_S0, 0, 1, 1,  500000, 1400000, SMPS_HMIN, 1p92),
+	RPM_SMPS(PM8058_S1, 0, 1, 1,  500000, 1400000, SMPS_HMIN, 1p92),
 };
 
 /* RPM regulator constraints */
@@ -3926,9 +3934,11 @@ static struct platform_device *early_devices[] __initdata = {
 	&msm_device_dmov_adm1,
 };
 
-static struct platform_device msm_tsens_device = {
-	.name   = "tsens-tm",
-	.id = -1,
+static struct tsens_platform_data pyr_tsens_pdata = {
+                .tsens_factor 			= 1000,
+                .hw_type                = MSM_8660,
+                .tsens_num_sensor       = 1,
+                .slope                  = 702,
 };
 
 #if defined(CONFIG_GPIO_SX150X) || defined(CONFIG_GPIO_SX150X_MODULE)
@@ -7524,9 +7534,9 @@ static struct platform_device *vigor_devices[] __initdata = {
 	&asoc_mvs_dai1,
 #endif
 
-#if defined(CONFIG_USB_GADGET_MSM_72K) || defined(CONFIG_USB_EHCI_HCD)
+	&msm_device_hsusb_host,
 	&msm_device_otg,
-#endif
+	
 #ifdef CONFIG_BATTERY_MSM
 	&msm_batt_device,
 #endif
@@ -7602,7 +7612,6 @@ static struct platform_device *vigor_devices[] __initdata = {
 	&msm_device_rng,
 #endif
 
-	&msm_tsens_device,
 	&msm_rpm_device,
 
 #ifdef CONFIG_BATTERY_MSM8X60
@@ -7803,6 +7812,8 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 	struct kobject *properties_kobj;
 	struct regulator *margin_power;
 
+	msm_tsens_early_init(&pyr_tsens_pdata);
+
 	/*
 	 * Initialize RPM first as other drivers and devices may need
 	 * it for their initialization.
@@ -7885,6 +7896,9 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 
 #ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
 	set_two_phase_freq(1134000);
+#ifdef CONFIG_CPU_FREQ_GOV_INTELLIDEMAND
+	id_set_two_phase_freq(1134000);
+#endif
 #endif
 
 	msm8x60_init_tlmm();
@@ -8029,7 +8043,7 @@ static void __init vigor_init(void)
 /* 0x40400000~0x42A00000 is 38MB for SF/AUDIO/FB PMEM */
 /* 0x48800000~0x7CC00000 is 836MB for APP */
 /* 0x7CC00000~0x80000000 is 52MB for ADSP PMEM */
-#define SIZE_ADDR1	  0x34400000
+#define SIZE_ADDR1	  0x30400000
 
 static void __init vigor_fixup(struct machine_desc *desc, struct tag *tags,
 				 char **cmdline, struct meminfo *mi)

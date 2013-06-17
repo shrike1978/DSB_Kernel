@@ -35,7 +35,7 @@
 #endif
 
 #ifdef CONFIG_FB_MSM_HDMI_MHL_SII9234
-#include "../video/msm_8x60/sii9234/TPI.h"
+#include "../video/msm/sii9234/TPI.h"
 #endif
 
 #ifdef CONFIG_INTERNAL_CHARGING_SUPPORT
@@ -116,7 +116,7 @@ static void send_cable_connect_notify(int cable_type)
 	CABLE_DEBUG("%s: cable_type = %d\n", __func__, cable_type);
 
 	if (cable_type == CONNECT_TYPE_UNKNOWN)
-		cable_type = CONNECT_TYPE_USB;
+		cable_type = CONNECT_TYPE_AC;
 
 	if (pInfo->ac_9v_gpio && (cable_type == CONNECT_TYPE_USB
 				|| cable_type == CONNECT_TYPE_AC)) {
